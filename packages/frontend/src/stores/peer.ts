@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, onMounted, onUnmounted } from 'vue';
+import { apiUrl } from '../utils/api.js';
 
 export const usePeerStore = defineStore('peer', () => {
   const peerId = ref('');
@@ -37,7 +38,7 @@ export const usePeerStore = defineStore('peer', () => {
   async function sendHeartbeat() {
     if (!isOnline.value) return;
     try {
-      await fetch('/api/posts/heartbeat', {
+      await fetch(apiUrl('/api/posts/heartbeat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ peerId: peerId.value }),

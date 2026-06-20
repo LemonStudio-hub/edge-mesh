@@ -4,15 +4,22 @@ import type { SignalMessage } from '@edge-mesh/shared';
 
 export type ConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed';
 
+export interface WebRTCOptions {
+  /** If false, skip auto-disconnect on unmount. Default: true */
+  autoCleanup?: boolean;
+}
+
 export function useWebRTC(
   signalingSend: (msg: SignalMessage) => void,
-  onMessage: (handler: (msg: SignalMessage) => void) => (() => void)
+  onMessage: (handler: (msg: SignalMessage) => void) => (() => void),
+  options: WebRTCOptions = {}
 ) {
+  const { autoCleanup = true } = options;
   const connectionState = ref<ConnectionState>('new');
   const dataChannel = ref<RTCDataChannel | null>(null);
+  const remotePeerId = ref('');
 
   let pc: RTCPeerConnection | null = null;
-  let remotePeerId = '';
   const dataChannelHandlers: ((dc: RTCDataChannel) => void)[] = [];
   const messageHandlers: ((event: MessageEvent) => void)[] = [];
 
@@ -22,15 +29,11 @@ export function useWebRTC(
     pc = new RTCPeerConnection(ICE_CONFIG);
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && remotePeerId) {
-        // Prefer IPv6 candidates by filtering
-        const candidateStr = event.candidate.candidate;
-        const isIPv6 = candidateStr.includes(':') && !candidateStr.includes('192.');
-        // Send all candidates, but IPv6 are sent first due to ICE config ordering
+      if (event.candidate && remotePeerId.value) {
         signalingSend({
           type: 'ice-candidate',
           from: '',
-          to: remotePeerId,
+          to: remotePeerId.value,
           candidate: event.candidate.toJSON(),
         });
       }
@@ -71,7 +74,7 @@ export function useWebRTC(
 
   /** Initiate a connection as the caller */
   async function connect(targetPeerId: string) {
-    remotePeerId = targetPeerId;
+    remotePeerId.value = targetPeerId;
     createPeerConnection();
 
     // Create data channel as the initiator
@@ -109,7 +112,7 @@ export function useWebRTC(
 
   /** Accept a connection as the callee */
   async function accept(offerSdp: RTCSessionDescriptionInit, fromPeerId: string) {
-    remotePeerId = fromPeerId;
+    remotePeerId.value = fromPeerId;
     createPeerConnection();
 
     await pc!.setRemoteDescription(new RTCSessionDescription(offerSdp));
@@ -162,16 +165,19 @@ export function useWebRTC(
     pc?.close();
     pc = null;
     connectionState.value = 'disconnected';
-    remotePeerId = '';
+    remotePeerId.value = '';
   }
 
-  onUnmounted(() => {
-    disconnect();
-  });
+  if (autoCleanup) {
+    onUnmounted(() => {
+      disconnect();
+    });
+  }
 
   return {
     connectionState,
     dataChannel,
+    remotePeerId,
     connect,
     accept,
     onDataChannel,

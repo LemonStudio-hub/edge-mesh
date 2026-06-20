@@ -1,55 +1,51 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { usePeerStore } from '../stores/peer.js';
+import { useSessionStore } from '../stores/session.js';
 import { useSignaling } from '../composables/useSignaling.js';
 import { useWebRTC } from '../composables/useWebRTC.js';
-import { useFileTransfer } from '../composables/useFileTransfer.js';
 import { useOnlineStatus } from '../composables/useOnlineStatus.js';
 import type { SignalMessage } from '@edge-mesh/shared';
-import type { FileMetadata } from '@edge-mesh/shared';
 import CreatePost from '../components/CreatePost.vue';
 import PostBoard from '../components/PostBoard.vue';
 import ConnectionRequest from '../components/ConnectionRequest.vue';
-import FileDropZone from '../components/FileDropZone.vue';
-import TransferDialog from '../components/TransferDialog.vue';
 
+const router = useRouter();
 const peer = usePeerStore();
+const session = useSessionStore();
 useOnlineStatus();
 
 // Use a shared room for all peers
 const signaling = useSignaling('global');
 const webrtc = useWebRTC(signaling.send, signaling.onMessage);
-const { sendFile, createReceiver } = useFileTransfer();
 
 // Connection request state
 const pendingRequest = ref<{
   fromPeerId: string;
   fromName: string;
-  offerSdp: RTCSessionDescriptionInit;
+  offerSdp: RTCSessionDescriptionInit | null;
 } | null>(null);
-
-// Active connection state
-const connectedPeerId = ref('');
-const connectedPeerName = ref('');
-const showFileZone = ref(false);
 
 let removeSignalingHandler: (() => void) | null = null;
 
 onMounted(() => {
+  // Reset any leftover session state
+  session.$reset();
+
   removeSignalingHandler = signaling.onMessage((msg: SignalMessage) => {
     if (msg.type === 'connect-request') {
-      // Store the pending request — the offer will come after acceptance
       pendingRequest.value = {
         fromPeerId: (msg as any).from,
         fromName: (msg as any).fromName,
-        offerSdp: null as any,
+        offerSdp: null,
       };
     } else if (msg.type === 'connect-accept') {
-      // Our request was accepted — WebRTC offer/answer will follow via signaling
+      // Our request was accepted — WebRTC offer/answer follows automatically
     } else if (msg.type === 'connect-reject') {
       alert('Connection request was rejected.');
     } else if (msg.type === 'offer') {
-      // Incoming offer — this means the other side accepted and is initiating
+      // Incoming offer — the other side accepted and is initiating
       pendingRequest.value = {
         fromPeerId: (msg as any).from,
         fromName: '',
@@ -58,21 +54,16 @@ onMounted(() => {
     }
   });
 
-  // When data channel connects, show file zone
+  // When data channel opens → navigate to transfer page
   webrtc.onDataChannel((dc) => {
-    showFileZone.value = true;
-    connectedPeerId.value = '';
-    // Set up receiver
-    const receiver = createReceiver(dc);
-    receiver.onFileReceived((blob: Blob, metadata: FileMetadata) => {
-      // Trigger download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = metadata.name;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+    const targetPeerId = webrtc.remotePeerId.value;
+    const targetPeerName = pendingRequest.value?.fromName || 'Remote Peer';
+
+    // Store the session before navigating
+    session.init(signaling, webrtc, targetPeerId, targetPeerName);
+
+    // Navigate to transfer page
+    router.push({ name: 'transfer' });
   });
 });
 
@@ -81,14 +72,19 @@ onUnmounted(() => {
 });
 
 function handleConnectRequest(peerId: string, peerName: string) {
-  // Send a connect-request via signaling
+  // Store target info for when connection establishes
+  pendingRequest.value = {
+    fromPeerId: peerId,
+    fromName: peerName,
+    offerSdp: null,
+  };
+
   signaling.send({
     type: 'connect-request',
     from: peer.peerId,
     fromName: peer.name,
     to: peerId,
   });
-  connectedPeerName.value = peerName;
 }
 
 async function acceptConnection() {
@@ -107,9 +103,7 @@ async function acceptConnection() {
     });
     await webrtc.connect(fromPeerId);
   }
-
-  connectedPeerId.value = fromPeerId;
-  pendingRequest.value = null;
+  // Don't clear pendingRequest here — keep the name for the session init
 }
 
 function rejectConnection() {
@@ -120,12 +114,6 @@ function rejectConnection() {
       to: pendingRequest.value.fromPeerId,
     });
     pendingRequest.value = null;
-  }
-}
-
-async function handleFileSelected(file: File) {
-  if (webrtc.dataChannel.value) {
-    await sendFile(file, webrtc.dataChannel.value);
   }
 }
 </script>
@@ -142,13 +130,6 @@ async function handleFileSelected(file: File) {
       @accept="acceptConnection"
       @reject="rejectConnection"
     />
-
-    <div v-if="showFileZone && webrtc.connectionState.value === 'connected'" class="file-section">
-      <h3>Connected — Send a file</h3>
-      <FileDropZone @file-selected="handleFileSelected" />
-    </div>
-
-    <TransferDialog />
   </div>
 </template>
 
@@ -157,18 +138,5 @@ async function handleFileSelected(file: File) {
   display: flex;
   flex-direction: column;
   gap: 2rem;
-}
-
-.file-section {
-  background: var(--surface);
-  padding: 1.5rem;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-
-.file-section h3 {
-  font-size: 1rem;
-  margin-bottom: 1rem;
-  color: var(--success);
 }
 </style>

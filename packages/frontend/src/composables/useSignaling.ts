@@ -2,7 +2,13 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import type { SignalMessage } from '@edge-mesh/shared';
 import { usePeerStore } from '../stores/peer.js';
 
-export function useSignaling(roomId: string) {
+export interface SignalingOptions {
+  /** If false, skip auto-connect on mount and auto-disconnect on unmount. Default: true */
+  autoConnect?: boolean;
+}
+
+export function useSignaling(roomId: string, options: SignalingOptions = {}) {
+  const { autoConnect = true } = options;
   const peer = usePeerStore();
   const connected = ref(false);
   const peers = ref<{ peerId: string; name: string; isOnline: boolean }[]>([]);
@@ -39,7 +45,7 @@ export function useSignaling(roomId: string) {
 
     ws.onclose = () => {
       connected.value = false;
-      scheduleReconnect();
+      if (autoConnect) scheduleReconnect();
     };
 
     ws.onerror = () => {
@@ -106,13 +112,15 @@ export function useSignaling(roomId: string) {
     connected.value = false;
   }
 
-  onMounted(() => {
-    connect();
-  });
+  if (autoConnect) {
+    onMounted(() => {
+      connect();
+    });
 
-  onUnmounted(() => {
-    disconnect();
-  });
+    onUnmounted(() => {
+      disconnect();
+    });
+  }
 
-  return { connected, peers, send, onMessage, disconnect };
+  return { connected, peers, send, onMessage, connect, disconnect };
 }

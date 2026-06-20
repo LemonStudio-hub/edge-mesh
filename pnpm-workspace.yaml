@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+allowBuilds:
+  esbuild: false
+  sharp: false
+  vue-demi: false
+  workerd: false

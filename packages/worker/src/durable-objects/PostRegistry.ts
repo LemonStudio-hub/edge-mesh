@@ -1,27 +1,50 @@
 import type { Post } from '@edge-mesh/shared';
 
-interface Env {
-  // No bindings needed for this DO
-}
+interface Env {}
 
 export class PostRegistry {
   private state: DurableObjectState;
-  private posts: Map<string, Post> = new Map();
-  private lastHeartbeat: Map<string, number> = new Map();
-  private alarmScheduled = false;
+  private posts: Map<string, Post> | null = null;
+  private lastHeartbeat: Map<string, number> | null = null;
+  private initialized = false;
 
   constructor(state: DurableObjectState, _env: Env) {
     this.state = state;
   }
 
+  /** Lazy-load posts and heartbeats from SQLite storage */
+  private async init() {
+    if (this.initialized) return;
+    this.initialized = true;
+
+    const stored = await this.state.storage.list<Post>();
+    this.posts = new Map();
+    this.lastHeartbeat = new Map();
+
+    for (const [key, value] of stored) {
+      if (key.startsWith('post:')) {
+        this.posts.set(key.slice(5), value);
+      } else if (key.startsWith('hb:')) {
+        this.lastHeartbeat.set(key.slice(3), value as unknown as number);
+      }
+    }
+
+    // Schedule alarm if there are posts
+    if (this.posts.size > 0) {
+      await this.state.storage.setAlarm(Date.now() + 60_000);
+    }
+  }
+
   async fetch(request: Request): Promise<Response> {
+    await this.init();
+
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (path === '/posts' && request.method === 'GET') {
-      this.cleanupExpired();
-      const posts = Array.from(this.posts.values()).sort(
-        (a, b) => b.createdAt - a.createdAt
+      await this.cleanupExpired();
+      const posts = Array.from(this.posts!.values()).sort(
+        (a, b) => b.createdAt - a.createdAt,
       );
       return Response.json(posts);
     }
@@ -33,6 +56,14 @@ export class PostRegistry {
         content: string;
       };
 
+      // Input validation
+      if (!body.authorPeerId || !body.authorName || !body.content) {
+        return Response.json(
+          { error: 'authorPeerId, authorName, and content are required' },
+          { status: 400 },
+        );
+      }
+
       const now = Date.now();
       const post: Post = {
         id: crypto.randomUUID(),
@@ -40,32 +71,59 @@ export class PostRegistry {
         authorName: body.authorName,
         content: body.content,
         createdAt: now,
-        expiresAt: now + 5 * 60 * 1000, // 5 min default
+        expiresAt: now + 5 * 60 * 1000,
       };
 
-      this.posts.set(post.id, post);
-      this.lastHeartbeat.set(body.authorPeerId, now);
-      await this.ensureAlarm();
+      this.posts!.set(post.id, post);
+      this.lastHeartbeat!.set(body.authorPeerId, now);
+
+      // Persist to storage
+      await this.state.storage.put(`post:${post.id}`, post);
+      await this.state.storage.put(`hb:${body.authorPeerId}`, now);
+      await this.state.storage.setAlarm(Date.now() + 60_000);
+
       return Response.json(post, { status: 201 });
     }
 
     if (path.startsWith('/posts/') && request.method === 'DELETE') {
       const id = path.split('/')[2];
-      this.posts.delete(id);
+      const post = this.posts!.get(id);
+
+      if (!post) {
+        return Response.json({ deleted: true });
+      }
+
+      // Ownership check: require authorPeerId in query string
+      const queryPeerId = url.searchParams.get('authorPeerId');
+      if (queryPeerId && queryPeerId !== post.authorPeerId) {
+        return Response.json({ error: 'not authorized to delete this post' }, { status: 403 });
+      }
+
+      this.posts!.delete(id);
+      await this.state.storage.delete(`post:${id}`);
+
       return Response.json({ deleted: true });
     }
 
     if (path === '/heartbeat' && request.method === 'POST') {
       const body = (await request.json()) as { peerId: string };
+
+      if (!body.peerId) {
+        return Response.json({ error: 'peerId is required' }, { status: 400 });
+      }
+
       const now = Date.now();
-      this.lastHeartbeat.set(body.peerId, now);
+      this.lastHeartbeat!.set(body.peerId, now);
+      await this.state.storage.put(`hb:${body.peerId}`, now);
 
       // Extend expiry for all posts by this peer
-      for (const post of this.posts.values()) {
+      for (const post of this.posts!.values()) {
         if (post.authorPeerId === body.peerId) {
           post.expiresAt = now + 5 * 60 * 1000;
+          await this.state.storage.put(`post:${post.id}`, post);
         }
       }
+
       return Response.json({ ok: true });
     }
 
@@ -73,45 +131,38 @@ export class PostRegistry {
   }
 
   async alarm() {
-    this.cleanupExpired();
+    await this.init();
+    await this.cleanupExpired();
 
-    // Remove posts for peers that haven't sent a heartbeat in 5 minutes
     const now = Date.now();
     const offlineThreshold = 5 * 60 * 1000;
 
-    for (const [peerId, lastSeen] of this.lastHeartbeat) {
+    for (const [peerId, lastSeen] of this.lastHeartbeat!) {
       if (now - lastSeen > offlineThreshold) {
-        // Delete all posts by this offline peer
-        for (const [id, post] of this.posts) {
+        for (const [id, post] of this.posts!) {
           if (post.authorPeerId === peerId) {
-            this.posts.delete(id);
+            this.posts!.delete(id);
+            await this.state.storage.delete(`post:${id}`);
           }
         }
-        this.lastHeartbeat.delete(peerId);
+        this.lastHeartbeat!.delete(peerId);
+        await this.state.storage.delete(`hb:${peerId}`);
       }
     }
 
     // Reschedule if there are still posts
-    if (this.posts.size > 0) {
+    if (this.posts!.size > 0) {
       await this.state.storage.setAlarm(Date.now() + 60_000);
-    } else {
-      this.alarmScheduled = false;
     }
   }
 
-  private cleanupExpired() {
+  private async cleanupExpired() {
     const now = Date.now();
-    for (const [id, post] of this.posts) {
+    for (const [id, post] of this.posts!) {
       if (post.expiresAt < now) {
-        this.posts.delete(id);
+        this.posts!.delete(id);
+        await this.state.storage.delete(`post:${id}`);
       }
-    }
-  }
-
-  private async ensureAlarm() {
-    if (!this.alarmScheduled) {
-      this.alarmScheduled = true;
-      await this.state.storage.setAlarm(Date.now() + 60_000);
     }
   }
 }

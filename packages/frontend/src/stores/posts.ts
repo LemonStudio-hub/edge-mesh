@@ -44,8 +44,10 @@ export const usePostsStore = defineStore('posts', () => {
   }
 
   async function deletePost(id: string) {
+    const peer = usePeerStore();
     try {
-      await fetch(apiUrl(`/api/posts/${id}`), { method: 'DELETE' });
+      const url = apiUrl(`/api/posts/${id}?authorPeerId=${encodeURIComponent(peer.peerId)}`);
+      await fetch(url, { method: 'DELETE' });
       posts.value = posts.value.filter((p) => p.id !== id);
     } catch {
       // handle error

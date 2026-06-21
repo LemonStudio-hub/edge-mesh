@@ -56,6 +56,10 @@ const completedTransfers = computed(() =>
   sortedTransfers.value.filter((t) => t.status === 'complete')
 );
 
+const errorTransfers = computed(() =>
+  sortedTransfers.value.filter((t) => ['error', 'cancelled'].includes(t.status))
+);
+
 async function handleFileSelected(file: File) {
   const dc = session.webrtcDataChannel;
   if (!dc) return;
@@ -98,9 +102,9 @@ function formatSpeed(bytesPerSec: number): string {
       @disconnect="handleDisconnect"
     />
 
-    <!-- Disconnected State -->
-    <div v-if="session.webrtcConnectionState === 'disconnected'" class="disconnected-banner">
-      <p>Connection lost.</p>
+    <!-- Disconnected / Failed State -->
+    <div v-if="session.webrtcConnectionState === 'disconnected' || session.webrtcConnectionState === 'failed'" class="disconnected-banner">
+      <p>{{ session.webrtcConnectionState === 'failed' ? 'Connection failed.' : 'Connection lost.' }}</p>
       <button class="btn-primary" @click="handleDisconnect">Return to Home</button>
     </div>
 
@@ -158,6 +162,25 @@ function formatSpeed(bytesPerSec: number): string {
       </div>
     </section>
 
+    <!-- Error / Cancelled Transfers -->
+    <section v-if="errorTransfers.length > 0" class="transfers-section">
+      <h2>Failed</h2>
+      <div v-for="t in errorTransfers" :key="t.id" class="transfer-item error">
+        <div class="transfer-header">
+          <span class="direction" :class="t.direction">
+            {{ t.direction === 'send' ? '↑' : '↓' }}
+          </span>
+          <span class="filename">{{ t.metadata?.name || 'Unknown' }}</span>
+          <span class="size">{{ t.metadata ? formatSize(t.metadata.size) : '' }}</span>
+          <span class="error-icon">✕</span>
+          <button class="btn-remove" @click="transferStore.removeTransfer(t.id)">×</button>
+        </div>
+        <div class="error-detail">
+          {{ t.status === 'cancelled' ? 'Cancelled' : t.error || 'Transfer failed' }}
+        </div>
+      </div>
+    </section>
+
     <!-- Received Files -->
     <section v-if="receivedFiles.length > 0" class="received-section">
       <h2>Received Files</h2>
@@ -175,7 +198,7 @@ function formatSpeed(bytesPerSec: number): string {
 
     <!-- Empty State -->
     <section
-      v-if="activeTransfers.length === 0 && completedTransfers.length === 0 && receivedFiles.length === 0"
+      v-if="activeTransfers.length === 0 && completedTransfers.length === 0 && errorTransfers.length === 0 && receivedFiles.length === 0"
       class="empty-state"
     >
       <p>No transfers yet. Drop a file above to start sending.</p>
@@ -335,6 +358,22 @@ function formatSpeed(bytesPerSec: number): string {
 .btn-remove:hover {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* Error / Cancelled */
+.error-icon {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.error-detail {
+  font-size: 0.8rem;
+  color: var(--danger);
+  margin-top: 0.25rem;
+}
+
+.transfer-item.error {
+  opacity: 0.8;
 }
 
 /* Received Files */

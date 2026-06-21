@@ -29,10 +29,12 @@ postsRoutes.post('/posts', async (c) => {
 
 postsRoutes.delete('/posts/:id', async (c) => {
   const id = c.req.param('id');
+  const authorPeerId = c.req.query('authorPeerId');
   const stub = getRegistry(c.env);
-  const res = await stub.fetch(
-    new Request(`https://internal/posts/${id}`, { method: 'DELETE' })
-  );
+  const url = authorPeerId
+    ? `https://internal/posts/${id}?authorPeerId=${encodeURIComponent(authorPeerId)}`
+    : `https://internal/posts/${id}`;
+  const res = await stub.fetch(new Request(url, { method: 'DELETE' }));
   return res;
 });
 

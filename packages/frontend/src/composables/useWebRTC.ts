@@ -12,7 +12,8 @@ export interface WebRTCOptions {
 export function useWebRTC(
   signalingSend: (msg: SignalMessage) => void,
   onMessage: (handler: (msg: SignalMessage) => void) => (() => void),
-  options: WebRTCOptions = {}
+  options: WebRTCOptions = {},
+  localPeerId = '',
 ) {
   const { autoCleanup = true } = options;
   const connectionState = ref<ConnectionState>('new');
@@ -32,7 +33,7 @@ export function useWebRTC(
       if (event.candidate && remotePeerId.value) {
         signalingSend({
           type: 'ice-candidate',
-          from: '',
+          from: localPeerId,
           to: remotePeerId.value,
           candidate: event.candidate.toJSON(),
         });
@@ -89,7 +90,7 @@ export function useWebRTC(
 
     signalingSend({
       type: 'offer',
-      from: '',
+      from: localPeerId,
       to: targetPeerId,
       sdp: offer,
     });
@@ -121,7 +122,7 @@ export function useWebRTC(
 
     signalingSend({
       type: 'answer',
-      from: '',
+      from: localPeerId,
       to: fromPeerId,
       sdp: answer,
     });

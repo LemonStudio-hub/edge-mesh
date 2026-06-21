@@ -2,7 +2,6 @@ export type {
   Post,
   PeerInfo,
   FileMetadata,
-  FileChunk,
   SignalMessage,
   FileTransferMessage,
 } from './types.js';

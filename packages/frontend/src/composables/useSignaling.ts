@@ -15,9 +15,18 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let reconnectDelay = 3000;
+  const MAX_RECONNECT_DELAY = 30000;
+  const PING_INTERVAL = 25000;
   const messageHandlers: ((msg: SignalMessage) => void)[] = [];
 
   function connect() {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const signalingUrl = import.meta.env.VITE_SIGNALING_URL || `${protocol}//${location.host}`;
     const url = `${signalingUrl}/api/signal/${roomId}`;
@@ -26,12 +35,17 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
 
     ws.onopen = () => {
       connected.value = true;
+      reconnectDelay = 3000; // Reset backoff on successful connection
+
       // Register this peer with the signaling server
       send({
         type: 'register',
         peerId: peer.peerId,
         peerName: peer.name,
       });
+
+      // Start keepalive ping
+      startPing();
     };
 
     ws.onmessage = (event) => {
@@ -45,6 +59,7 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
 
     ws.onclose = () => {
       connected.value = false;
+      stopPing();
       if (autoConnect) scheduleReconnect();
     };
 
@@ -53,10 +68,26 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
     };
   }
 
+  function startPing() {
+    stopPing();
+    pingTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, PING_INTERVAL);
+  }
+
+  function stopPing() {
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
+  }
+
   function handleMessage(msg: SignalMessage) {
     if (msg.type === 'peer-list') {
       peers.value = msg.peers.filter(
-        (p) => p.peerId !== peer.peerId
+        (p) => p.peerId !== peer.peerId,
       );
     } else if (msg.type === 'peer-joined') {
       const p = msg.peer;
@@ -78,7 +109,7 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
     }
   }
 
-  function send(msg: SignalMessage | any) {
+  function send(msg: SignalMessage | Record<string, unknown>) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
@@ -97,7 +128,9 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect();
-    }, 3000);
+    }, reconnectDelay);
+    // Exponential backoff: 3s → 6s → 12s → 24s → 30s (max)
+    reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
   }
 
   function disconnect() {
@@ -105,11 +138,13 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    stopPing();
     if (ws) {
       ws.close();
       ws = null;
     }
     connected.value = false;
+    reconnectDelay = 3000; // Reset backoff
   }
 
   if (autoConnect) {

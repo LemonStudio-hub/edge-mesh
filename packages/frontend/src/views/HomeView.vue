@@ -20,12 +20,15 @@ useOnlineStatus();
 const signaling = useSignaling('global');
 const webrtc = useWebRTC(signaling.send, signaling.onMessage);
 
-// Connection request state
+// Connection request state (for incoming requests — shows the accept/reject dialog)
 const pendingRequest = ref<{
   fromPeerId: string;
   fromName: string;
   offerSdp: RTCSessionDescriptionInit | null;
 } | null>(null);
+
+// Outgoing request target (for requests we initiated — no dialog shown)
+const outgoingTarget = ref<{ peerId: string; name: string } | null>(null);
 
 let removeSignalingHandler: (() => void) | null = null;
 
@@ -41,23 +44,29 @@ onMounted(() => {
         offerSdp: null,
       };
     } else if (msg.type === 'connect-accept') {
-      // Our request was accepted — WebRTC offer/answer follows automatically
+      // Our request was accepted — the other side will send us an offer
     } else if (msg.type === 'connect-reject') {
+      outgoingTarget.value = null;
       alert('Connection request was rejected.');
     } else if (msg.type === 'offer') {
-      // Incoming offer — the other side accepted and is initiating
-      pendingRequest.value = {
-        fromPeerId: (msg as any).from,
-        fromName: '',
-        offerSdp: (msg as any).sdp,
-      };
+      if (outgoingTarget.value) {
+        // We initiated this connection — auto-accept the offer
+        webrtc.accept((msg as any).sdp, (msg as any).from);
+      } else {
+        // Unsolicited offer — show dialog
+        pendingRequest.value = {
+          fromPeerId: (msg as any).from,
+          fromName: '',
+          offerSdp: (msg as any).sdp,
+        };
+      }
     }
   });
 
   // When data channel opens → navigate to transfer page
   webrtc.onDataChannel((dc) => {
     const targetPeerId = webrtc.remotePeerId.value;
-    const targetPeerName = pendingRequest.value?.fromName || 'Remote Peer';
+    const targetPeerName = pendingRequest.value?.fromName || outgoingTarget.value?.name || 'Remote Peer';
 
     // Store the session before navigating
     session.init(signaling, webrtc, targetPeerId, targetPeerName);
@@ -72,12 +81,8 @@ onUnmounted(() => {
 });
 
 function handleConnectRequest(peerId: string, peerName: string) {
-  // Store target info for when connection establishes
-  pendingRequest.value = {
-    fromPeerId: peerId,
-    fromName: peerName,
-    offerSdp: null,
-  };
+  // Store target info for when connection establishes (don't show dialog — we initiated this)
+  outgoingTarget.value = { peerId, name: peerName };
 
   signaling.send({
     type: 'connect-request',

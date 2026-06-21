@@ -7,7 +7,7 @@ import type { Env } from './env.js';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'DELETE'] }));
+app.use('*', cors({ origin: 'https://file.ijk.cam', allowMethods: ['GET', 'POST', 'DELETE'] }));
 app.route('/api', healthRoutes);
 app.route('/api', postsRoutes);
 app.route('/api', signalingRoutes);

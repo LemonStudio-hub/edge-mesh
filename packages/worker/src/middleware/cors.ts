@@ -3,6 +3,5 @@
 
 export function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return false;
-  // In production, restrict to your domain
-  return true;
+  return origin === 'https://file.ijk.cam';
 }

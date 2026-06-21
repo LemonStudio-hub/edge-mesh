@@ -14,11 +14,14 @@ const emit = defineEmits<{
 
 const timeLeft = ref(CONNECTION_REQUEST_TIMEOUT_MS / 1000);
 let timer: ReturnType<typeof setInterval> | null = null;
+let settled = false;
 
 onMounted(() => {
   timer = setInterval(() => {
+    if (settled) return;
     timeLeft.value--;
     if (timeLeft.value <= 0) {
+      settled = true;
       emit('reject');
     }
   }, 1000);
@@ -27,6 +30,20 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer);
 });
+
+function handleAccept() {
+  if (settled) return;
+  settled = true;
+  if (timer) clearInterval(timer);
+  emit('accept');
+}
+
+function handleReject() {
+  if (settled) return;
+  settled = true;
+  if (timer) clearInterval(timer);
+  emit('reject');
+}
 </script>
 
 <template>
@@ -38,8 +55,8 @@ onUnmounted(() => {
       </p>
       <p class="timer">Auto-reject in {{ timeLeft }}s</p>
       <div class="actions">
-        <button class="btn-ghost" @click="$emit('reject')">Reject</button>
-        <button class="btn-primary" @click="$emit('accept')">Accept</button>
+        <button class="btn-ghost" @click="handleReject">Reject</button>
+        <button class="btn-primary" @click="handleAccept">Accept</button>
       </div>
     </div>
   </div>

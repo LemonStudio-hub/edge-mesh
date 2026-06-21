@@ -2,6 +2,10 @@ import type { Post } from '@edge-mesh/shared';
 
 interface Env {}
 
+const POST_EXPIRY_MS = 5 * 60 * 1000;
+const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
+const MIN_ALARM_INTERVAL_MS = 60_000;
+
 export class PostRegistry {
   private state: DurableObjectState;
   private posts: Map<string, Post> | null = null;
@@ -31,8 +35,26 @@ export class PostRegistry {
 
     // Schedule alarm if there are posts
     if (this.posts.size > 0) {
-      await this.state.storage.setAlarm(Date.now() + 60_000);
+      await this.scheduleAlarm();
     }
+  }
+
+  /** Schedule alarm for the earliest expiry time, with a minimum interval */
+  private async scheduleAlarm() {
+    let earliest = Infinity;
+    const now = Date.now();
+
+    for (const post of this.posts!.values()) {
+      if (post.expiresAt < earliest) earliest = post.expiresAt;
+    }
+    for (const [, lastSeen] of this.lastHeartbeat!) {
+      const peerExpiry = lastSeen + OFFLINE_THRESHOLD_MS;
+      if (peerExpiry < earliest) earliest = peerExpiry;
+    }
+
+    // Fire at the earliest expiry, but at least MIN_ALARM_INTERVAL_MS from now
+    const delay = Math.max(earliest - now, MIN_ALARM_INTERVAL_MS);
+    await this.state.storage.setAlarm(Date.now() + delay);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -71,7 +93,7 @@ export class PostRegistry {
         authorName: body.authorName,
         content: body.content,
         createdAt: now,
-        expiresAt: now + 5 * 60 * 1000,
+        expiresAt: now + POST_EXPIRY_MS,
       };
 
       this.posts!.set(post.id, post);
@@ -80,13 +102,20 @@ export class PostRegistry {
       // Persist to storage
       await this.state.storage.put(`post:${post.id}`, post);
       await this.state.storage.put(`hb:${body.authorPeerId}`, now);
-      await this.state.storage.setAlarm(Date.now() + 60_000);
+      await this.scheduleAlarm();
 
       return Response.json(post, { status: 201 });
     }
 
     if (path.startsWith('/posts/') && request.method === 'DELETE') {
-      const id = path.split('/')[2];
+      // Extract ID safely: /posts/{id} — use URL pathname segments
+      const segments = path.split('/').filter(Boolean); // removes empty strings from leading/trailing slashes
+      const id = segments.length >= 2 ? segments[1] : '';
+
+      if (!id) {
+        return Response.json({ error: 'post id is required' }, { status: 400 });
+      }
+
       const post = this.posts!.get(id);
 
       if (!post) {
@@ -119,7 +148,7 @@ export class PostRegistry {
       // Extend expiry for all posts by this peer
       for (const post of this.posts!.values()) {
         if (post.authorPeerId === body.peerId) {
-          post.expiresAt = now + 5 * 60 * 1000;
+          post.expiresAt = now + POST_EXPIRY_MS;
           await this.state.storage.put(`post:${post.id}`, post);
         }
       }
@@ -135,10 +164,9 @@ export class PostRegistry {
     await this.cleanupExpired();
 
     const now = Date.now();
-    const offlineThreshold = 5 * 60 * 1000;
 
     for (const [peerId, lastSeen] of this.lastHeartbeat!) {
-      if (now - lastSeen > offlineThreshold) {
+      if (now - lastSeen > OFFLINE_THRESHOLD_MS) {
         for (const [id, post] of this.posts!) {
           if (post.authorPeerId === peerId) {
             this.posts!.delete(id);
@@ -152,7 +180,7 @@ export class PostRegistry {
 
     // Reschedule if there are still posts
     if (this.posts!.size > 0) {
-      await this.state.storage.setAlarm(Date.now() + 60_000);
+      await this.scheduleAlarm();
     }
   }
 

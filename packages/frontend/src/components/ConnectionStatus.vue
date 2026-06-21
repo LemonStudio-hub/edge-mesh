@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 
 const props = defineProps<{
   peerName: string;
@@ -10,19 +10,48 @@ const props = defineProps<{
 const emit = defineEmits<{ disconnect: [] }>();
 
 const elapsed = ref(0);
-let timer: ReturnType<typeof setInterval>;
+let timer: ReturnType<typeof setInterval> | null = null;
 
-onMounted(() => {
+function startTimer() {
+  stopTimer();
+  if (!props.startTime || props.connectionState === 'disconnected' || props.connectionState === 'failed') {
+    return;
+  }
+  elapsed.value = Date.now() - props.startTime;
   timer = setInterval(() => {
+    if (props.connectionState === 'disconnected' || props.connectionState === 'failed') {
+      stopTimer();
+      return;
+    }
     elapsed.value = Date.now() - props.startTime;
   }, 1000);
+}
+
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+onMounted(() => {
+  startTimer();
 });
 
 onUnmounted(() => {
-  clearInterval(timer);
+  stopTimer();
+});
+
+watch(() => props.connectionState, (state) => {
+  if (state === 'connected' || state === 'connecting') {
+    startTimer();
+  } else {
+    stopTimer();
+  }
 });
 
 const formattedTime = computed(() => {
+  if (!props.startTime) return '00:00';
   const totalSec = Math.floor(elapsed.value / 1000);
   const mins = Math.floor(totalSec / 60);
   const secs = totalSec % 60;

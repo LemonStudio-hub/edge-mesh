@@ -9,18 +9,30 @@ const emit = defineEmits<{
 const isDragging = ref(false);
 const selectedFile = ref<File | null>(null);
 const error = ref('');
+let dragCounter = 0;
 
-function handleDragOver(e: DragEvent) {
+function handleDragEnter(e: DragEvent) {
   e.preventDefault();
+  dragCounter++;
   isDragging.value = true;
 }
 
-function handleDragLeave() {
-  isDragging.value = false;
+function handleDragOver(e: DragEvent) {
+  e.preventDefault();
+}
+
+function handleDragLeave(e: DragEvent) {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    isDragging.value = false;
+  }
 }
 
 function handleDrop(e: DragEvent) {
   e.preventDefault();
+  dragCounter = 0;
   isDragging.value = false;
   const files = e.dataTransfer?.files;
   if (files && files.length > 0) {
@@ -38,7 +50,9 @@ function handleFileInput(e: Event) {
 function validateAndSelect(file: File) {
   error.value = '';
   if (file.size > MAX_FILE_SIZE) {
-    error.value = `File too large (max ${MAX_FILE_SIZE / (1024 * 1024)} MB)`;
+    const maxMB = MAX_FILE_SIZE / (1024 * 1024);
+    const label = maxMB >= 1024 ? `${(maxMB / 1024).toFixed(0)} GB` : `${maxMB} MB`;
+    error.value = `File too large (max ${label})`;
     return;
   }
   selectedFile.value = file;
@@ -62,6 +76,7 @@ function clearSelection() {
   <div
     class="drop-zone"
     :class="{ dragging: isDragging, 'has-file': !!selectedFile }"
+    @dragenter="handleDragEnter"
     @dragover="handleDragOver"
     @dragleave="handleDragLeave"
     @drop="handleDrop"

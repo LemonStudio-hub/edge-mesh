@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { ref, onMounted, onUnmounted } from 'vue';
 import { apiUrl } from '../utils/api.js';
 
+const STORAGE_KEY = 'edge-mesh-peer-id';
+
 export const usePeerStore = defineStore('peer', () => {
   const peerId = ref('');
   const name = ref('');
@@ -15,12 +17,20 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   function init() {
-    peerId.value = generatePeerId();
+    // Reuse peer ID from sessionStorage if available (survives page refresh, not tab close)
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (stored && stored.length === 16) {
+      peerId.value = stored;
+    } else {
+      peerId.value = generatePeerId();
+      sessionStorage.setItem(STORAGE_KEY, peerId.value);
+    }
     name.value = `Peer-${peerId.value.slice(0, 6)}`;
     setOnline();
   }
 
   function setOnline() {
+    if (!peerId.value) return; // Guard: don't go online before init
     isOnline.value = true;
     if (!heartbeatTimer) {
       heartbeatTimer = setInterval(sendHeartbeat, 30_000);
@@ -36,7 +46,7 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   async function sendHeartbeat() {
-    if (!isOnline.value) return;
+    if (!isOnline.value || !peerId.value) return;
     try {
       await fetch(apiUrl('/api/posts/heartbeat'), {
         method: 'POST',

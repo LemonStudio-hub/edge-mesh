@@ -13,15 +13,15 @@ const emit = defineEmits<{
 }>();
 
 const timeLeft = ref(CONNECTION_REQUEST_TIMEOUT_MS / 1000);
+const status = ref<'pending' | 'accepted' | 'rejected'>('pending');
 let timer: ReturnType<typeof setInterval> | null = null;
-let settled = false;
 
 onMounted(() => {
   timer = setInterval(() => {
-    if (settled) return;
+    if (status.value !== 'pending') return;
     timeLeft.value--;
     if (timeLeft.value <= 0) {
-      settled = true;
+      status.value = 'rejected';
       emit('reject');
     }
   }, 1000);
@@ -32,15 +32,15 @@ onUnmounted(() => {
 });
 
 function handleAccept() {
-  if (settled) return;
-  settled = true;
+  if (status.value !== 'pending') return;
+  status.value = 'accepted';
   if (timer) clearInterval(timer);
   emit('accept');
 }
 
 function handleReject() {
-  if (settled) return;
-  settled = true;
+  if (status.value !== 'pending') return;
+  status.value = 'rejected';
   if (timer) clearInterval(timer);
   emit('reject');
 }
@@ -53,10 +53,16 @@ function handleReject() {
       <p class="message">
         <strong>{{ fromName }}</strong> wants to connect with you for file sharing.
       </p>
-      <p class="timer">Auto-reject in {{ timeLeft }}s</p>
+      <p v-if="status === 'pending'" class="timer">Auto-reject in {{ timeLeft }}s</p>
+      <p v-else-if="status === 'accepted'" class="connecting">
+        <span class="connecting-spinner"></span>
+        Connecting…
+      </p>
       <div class="actions">
-        <button class="btn-ghost" @click="handleReject">Reject</button>
-        <button class="btn-primary" @click="handleAccept">Accept</button>
+        <button class="btn-ghost" :disabled="status !== 'pending'" @click="handleReject">Reject</button>
+        <button class="btn-primary" :disabled="status !== 'pending'" @click="handleAccept">
+          {{ status === 'accepted' ? 'Connecting…' : 'Accept' }}
+        </button>
       </div>
     </div>
   </div>
@@ -102,5 +108,27 @@ h3 {
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
+}
+
+.connecting {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--primary);
+  margin-bottom: 1.5rem;
+}
+
+.connecting-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

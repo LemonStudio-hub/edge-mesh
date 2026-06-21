@@ -82,6 +82,10 @@ onMounted(() => {
     // Store the session before navigating
     session.init(signaling, webrtc, targetPeerId, targetPeerName);
 
+    // Clear connection state now that the session has consumed the peer name
+    pendingRequest.value = null;
+    outgoingTarget.value = null;
+
     // Navigate to transfer page
     router.push({ name: 'transfer' });
   });
@@ -132,19 +136,24 @@ async function acceptConnection() {
   if (!pendingRequest.value) return;
   const { fromPeerId, offerSdp } = pendingRequest.value;
 
-  if (offerSdp) {
-    // We received an offer directly — accept it
-    await webrtc.accept(offerSdp, fromPeerId);
-  } else {
-    // We received a connect-request — send acceptance, then create offer
-    signaling.send({
-      type: 'connect-accept',
-      from: peer.peerId,
-      to: fromPeerId,
-    });
-    await webrtc.connect(fromPeerId);
+  try {
+    if (offerSdp) {
+      // We received an offer directly — accept it
+      await webrtc.accept(offerSdp, fromPeerId);
+    } else {
+      // We received a connect-request — send acceptance, then create offer
+      signaling.send({
+        type: 'connect-accept',
+        from: peer.peerId,
+        to: fromPeerId,
+      });
+      await webrtc.connect(fromPeerId);
+    }
+    // Don't clear pendingRequest here — keep the name for the session init
+  } catch (err) {
+    pendingRequest.value = null;
+    showRejection(`Connection failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
-  // Don't clear pendingRequest here — keep the name for the session init
 }
 
 function rejectConnection() {

@@ -28,10 +28,10 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
       connected.value = true;
       // Register this peer with the signaling server
       send({
-        type: 'register' as any,
+        type: 'register',
         peerId: peer.peerId,
         peerName: peer.name,
-      } as any);
+      });
     };
 
     ws.onmessage = (event) => {
@@ -55,11 +55,11 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
 
   function handleMessage(msg: SignalMessage) {
     if (msg.type === 'peer-list') {
-      peers.value = (msg as any).peers.filter(
-        (p: any) => p.peerId !== peer.peerId
+      peers.value = msg.peers.filter(
+        (p) => p.peerId !== peer.peerId
       );
     } else if (msg.type === 'peer-joined') {
-      const p = (msg as any).peer;
+      const p = msg.peer;
       if (p.peerId !== peer.peerId) {
         const existing = peers.value.findIndex((x) => x.peerId === p.peerId);
         if (existing >= 0) {
@@ -69,7 +69,7 @@ export function useSignaling(roomId: string, options: SignalingOptions = {}) {
         }
       }
     } else if (msg.type === 'peer-left') {
-      peers.value = peers.value.filter((p) => p.peerId !== (msg as any).peerId);
+      peers.value = peers.value.filter((p) => p.peerId !== msg.peerId);
     }
 
     // Notify all handlers

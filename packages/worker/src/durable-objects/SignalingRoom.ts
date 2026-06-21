@@ -16,7 +16,7 @@ export class SignalingRoom {
     this.state = state;
   }
 
-  async fetch(request: Request): Response {
+  async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
 
@@ -36,15 +36,12 @@ export class SignalingRoom {
 
     ws.addEventListener('message', (event) => {
       try {
-        const msg = JSON.parse(event.data as string) as SignalMessage & {
-          peerId?: string;
-          peerName?: string;
-        };
+        const msg = JSON.parse(event.data as string) as SignalMessage;
 
         // Registration message
         if (msg.type === 'register') {
-          peerId = msg.peerId || '';
-          peerName = msg.peerName || '';
+          peerId = msg.peerId;
+          peerName = msg.peerName;
           this.peers.set(peerId, { ws, peerId, name: peerName });
 
           // Send current peer list to the new peer

@@ -33,6 +33,7 @@ export interface FileChunk {
 
 /** WebRTC signaling messages exchanged via the signaling server */
 export type SignalMessage =
+  | { type: 'register'; peerId: string; peerName: string }
   | { type: 'offer'; from: string; to: string; sdp: RTCSessionDescriptionInit }
   | { type: 'answer'; from: string; to: string; sdp: RTCSessionDescriptionInit }
   | { type: 'ice-candidate'; from: string; to: string; candidate: RTCIceCandidateInit }

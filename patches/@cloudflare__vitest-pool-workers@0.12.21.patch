@@ -1,0 +1,25 @@
+diff --git a/dist/pool/index.mjs b/dist/pool/index.mjs
+index 87def84cb6283651cd4828d186cf24bf2c188de2..04048844e75a1a2552b0c115effb95265d076085 100644
+--- a/dist/pool/index.mjs
++++ b/dist/pool/index.mjs
+@@ -6727,9 +6727,9 @@ async function pushStackedStorage(intoDepth, persistPath) {
+         createdStackFrameKeyPath = true;
+         await fs.mkdir(stackFrameKeyPath);
+       }
++      if (!name.endsWith(".sqlite")) continue;
+       const namePath = path4.join(keyPath, name);
+       const stackFrameNamePath = path4.join(stackFrameKeyPath, name);
+-      assert2(name.endsWith(".sqlite"), `Expected .sqlite, got ${namePath}`);
+       await fs.copyFile(namePath, stackFrameNamePath);
+     }
+   }
+@@ -6744,8 +6744,8 @@ async function popStackedStorage(fromDepth, persistPath) {
+       if (name === BLOBS_DIR_NAME) {
+         break;
+       }
++      if (!name.endsWith(".sqlite")) continue;
+       const namePath = path4.join(keyPath, name);
+-      assert2(name.endsWith(".sqlite"), `Expected .sqlite, got ${namePath}`);
+       await fs.unlink(namePath);
+     }
+   }

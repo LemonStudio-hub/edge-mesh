@@ -5,3 +5,5 @@ allowBuilds:
   sharp: false
   vue-demi: false
   workerd: false
+patchedDependencies:
+  '@cloudflare/vitest-pool-workers@0.12.21': patches/@cloudflare__vitest-pool-workers@0.12.21.patch

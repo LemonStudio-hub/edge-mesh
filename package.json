@@ -2,6 +2,7 @@
   "name": "edge-mesh",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0",
   "description": "Browser-side P2P file distribution network",
   "scripts": {
     "dev": "pnpm -C packages/frontend dev",
